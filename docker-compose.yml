@@ -1,0 +1,10 @@
+version: '3'
+services:  
+    runner:
+        container_name: runner
+        build:
+            context: '.'
+            dockerfile: 'Dockerfile'
+        volumes:
+            - './:/scripts'
+        stdin_open: true
