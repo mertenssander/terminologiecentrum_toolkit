@@ -3,6 +3,7 @@ import requests
 from tqdm import tqdm
 from os import listdir
 from os.path import isfile, join
+from datetime import datetime
 
 """
 Test welke van de leden+descendants in een refset er in de VT (totaal en lijst gyn) zitten.
@@ -22,22 +23,42 @@ snowstorm_url = "http://ec2-18-192-57-190.eu-central-1.compute.amazonaws.com:808
 snomed_branch = 'MAIN'
 snomed_versie = 'prerelease'
 
-# Bronbestand kiezen
+# Dataframes VT creëren
 files_in_folder = [f for f in listdir("./resources") if isfile(join("./resources", f))]
 i=0
 print("Bestanden in map:")
 print("-"*80)
+file_1 = False
+file_2 = False
+file_3 = False
 for file in files_in_folder:
-    i+=1
-    print(f"[{i}]\t{file}")
+    file_type = file.split("_")[-1:]
+    if file_type[0] == "ThesaurusConceptRol.csv":
+        thesaurusConceptRollen = pd.read_csv("./resources/"+file)
+        file_1 = file
+    if file_type[0] == "ThesaurusConcept.csv":
+        thesaurusConcepten = pd.read_csv("./resources/"+file)
+        file_2 = file
+    if file_type[0] == "ThesaurusTerm.csv":
+        thesaurusTermen = pd.read_csv("./resources/"+file)
+        file_3 = file
+if file_1 and file_2 and file_3:
+    print("Bronbestanden gevonden.")
+else:
+    exit("Niet alle bronbestanden aanwezig.")
 
-file_no = int(input("Welk bestand bevat de laatste versie van de verrichtingenthesaurus? "))-1
-filename = files_in_folder[file_no]
-print(f"Gekozen bestand: {filename}")
 print("-"*80)
-
-# Dataframe creëren
-df = pd.read_excel("./resources/"+filename, header=2, sheet_name=1)
+print("-"*80)
+print(file_1)
+print(thesaurusConceptRollen.head())
+print("-"*80)
+print(file_2)
+print(thesaurusConcepten.head())
+print("-"*80)
+print(file_3)
+print(thesaurusTermen.head())
+print("-"*80)
+print("-"*80)
 
 # Ophalen refset members
 def fetchEcl(ecl):
@@ -72,33 +93,62 @@ deduplicated_list_descendants = list(set(deduplicated_list_descendants))
 print(len(deduplicated_list_descendants), "concepten in descendants.")
 
 
-# Iterate over kolom met SNOMED ID's
-output = []
-for row, value in df.iterrows():
-    try:
-        conceptID = value['Snomed ID & Snomed Term'].split(":")[0]
-    except:
-        conceptID = False
 
-    in_ecl          = (int(conceptID) in deduplicated_list_ecl)
-    in_descendants  = (int(conceptID) in deduplicated_list_descendants)
+# Lijst met thesaurusconcept ID's na filter creeren
+thesaurusIDs = thesaurusConceptRollen['ConceptID'].values
+
+# Iterate over kolom met Thesaurus ID's
+output = []
+for thesaurusID in list(set(thesaurusIDs)):
+    thesaurusConcept = thesaurusConcepten[
+        (thesaurusConcepten['ConceptID'] == thesaurusID) & (thesaurusConcepten['Einddatum'] == 20991231)
+        ]
+
+    thesaurusTerm = thesaurusTermen[
+        (thesaurusTermen['ConceptID'] == thesaurusID) &
+        (thesaurusTermen['Einddatum'] == 20991231) &
+        (thesaurusTermen['TypeTerm'] == 'voorkeursterm')
+    ]
+
+    try:
+        SCTID = int(thesaurusConcept['SnomedID'])
+    except:
+        SCTID = False
+
+    try:
+        term = thesaurusTerm['Omschrijving'].values[0]
+    except:
+        term = False
+
+    groepCode = thesaurusConceptRollen[
+                    thesaurusConceptRollen['ConceptID'] == thesaurusID
+                ]['SpecialismeGroepCode'].values[0]
+
+    in_ecl          = (SCTID in deduplicated_list_ecl)
+    in_descendants  = (SCTID in deduplicated_list_descendants)
 
     output.append({
-        'ThesaurusID' : value['ThesaurusID'],
-        'Voorkeursterm' : value['Voorkeursterm'],
-        'Snomed ID & Snomed Term' : value['Snomed ID & Snomed Term'],
+        'ThesaurusID' : str(thesaurusID),
+        'Snomed ID' : str(SCTID),
+        'Voorkeursterm' : term,
+        'SpecialismeGroepCode' : str(groepCode),
         'SCTID in refset': in_ecl,
         'SCTID in descendants van refsetleden': in_descendants,
     })
 
 # Exporteren naar Excel
-writer = pd.ExcelWriter('output.xlsx', engine='xlsxwriter')
+now = datetime.now()
+date_time = now.strftime("%m-%d-%Y_%H:%M:%S")
+writer = pd.ExcelWriter(f"output_{date_time}.xlsx", engine='xlsxwriter')
 
 # Sheet 1 met metadata
 metadata_df = pd.DataFrame([
+    {'key' : 'Export time', 'value' : date_time},
     {'key' : 'SNOMED versie', 'value' : snomed_versie},
     {'key' : 'Snowstorm URL', 'value' : snowstorm_url},
-    {'key' : 'VT bronbestand', 'value' : filename},
+    {'key' : 'VT bronbestand[0]', 'value' : file_1},
+    {'key' : 'VT bronbestand[1]', 'value' : file_2},
+    {'key' : 'VT bronbestand[2]', 'value' : file_3},
     {'key' : 'Opmerkingen', 'value' : input("Opmerkingen voor in het output-bestand? ")},
 ])
 metadata_df.to_excel(writer, 'Sheet1')
@@ -108,4 +158,4 @@ output_df = pd.DataFrame(output)
 output_df.to_excel(writer, 'Sheet2')
 
 writer.save()
-print(f"Klaar - download output.xlsx voor resultaten.")
+print(f"Klaar - download output_{date_time}.xlsx voor resultaten.")
