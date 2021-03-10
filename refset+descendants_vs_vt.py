@@ -19,7 +19,8 @@ Run met python3 refset+descendants_vs_vt.py. Kies in de dialoog het juist excel 
 ### Config ###
 # Snowstorm URL - include trailing forward slash
 snowstorm_url = "http://ec2-18-192-57-190.eu-central-1.compute.amazonaws.com:8080/"
-
+snomed_branch = 'MAIN'
+snomed_versie = 'prerelease'
 
 # Bronbestand kiezen
 files_in_folder = [f for f in listdir("./resources") if isfile(join("./resources", f))]
@@ -41,14 +42,14 @@ df = pd.read_excel("./resources/"+filename, header=2, sheet_name=1)
 # Ophalen refset members
 def fetchEcl(ecl):
     concepts = []
-    url = f"{snowstorm_url}MAIN/concepts?ecl={ecl}&limit=10000&returnIdOnly=true"
+    url = f"{snowstorm_url}{snomed_branch}/concepts?ecl={ecl}&limit=10000&returnIdOnly=true"
     # print(url)
     req = requests.get(url)
     response = req.json()
     total = response.get('total',0)
     while len(concepts) < total:
         concepts += response.get('items',[])
-        url = f"{snowstorm_url}MAIN/concepts?ecl={ecl}&limit=10000&searchAfter={response.get('searchAfter')}&returnIdOnly=true"
+        url = f"{snowstorm_url}{snomed_branch}/concepts?ecl={ecl}&limit=10000&searchAfter={response.get('searchAfter')}&returnIdOnly=true"
         # print(url)
         req = requests.get(url)
         response = req.json()
@@ -58,13 +59,17 @@ conceptID_list = fetchEcl("^146481000146103")
 print(f"{len(conceptID_list)} refsetleden opgehaald. Nu de descendants.")
 
 # Descendants van refsetleden ophalen, en toevoegen aan lijst
-refset_plus_descendants = conceptID_list.copy()
-for concept in tqdm(conceptID_list):
-    refset_plus_descendants += fetchEcl(f"<{concept}")
+deduplicated_list_ecl           = conceptID_list.copy()
+deduplicated_list_descendants   = []
+for concept in tqdm(deduplicated_list_ecl):
+    deduplicated_list_descendants += fetchEcl(f"<{concept}")
 
-# Lijst dedupliceren
-deduplicated_list = list(set(refset_plus_descendants))
-print(len(deduplicated_list), "concepten in totaal.")
+# Lijsten dedupliceren
+deduplicated_list_ecl = list(set(deduplicated_list_ecl))
+print(len(deduplicated_list_ecl), "concepten in refset.")
+
+deduplicated_list_descendants = list(set(deduplicated_list_descendants))
+print(len(deduplicated_list_descendants), "concepten in descendants.")
 
 
 # Iterate over kolom met SNOMED ID's
@@ -74,16 +79,33 @@ for row, value in df.iterrows():
         conceptID = value['Snomed ID & Snomed Term'].split(":")[0]
     except:
         conceptID = False
-    in_ecl = (int(conceptID) in deduplicated_list)
-    # print(row, conceptID, in_ecl)
+
+    in_ecl          = (int(conceptID) in deduplicated_list_ecl)
+    in_descendants  = (int(conceptID) in deduplicated_list_descendants)
+
     output.append({
         'ThesaurusID' : value['ThesaurusID'],
         'Voorkeursterm' : value['Voorkeursterm'],
         'Snomed ID & Snomed Term' : value['Snomed ID & Snomed Term'],
-        'SCTID in refset of descendants?': in_ecl,
+        'SCTID in refset': in_ecl,
+        'SCTID in descendants van refsetleden': in_descendants,
     })
 
 # Exporteren naar Excel
+writer = pd.ExcelWriter('output.xlsx', engine='xlsxwriter')
+
+# Sheet 1 met metadata
+metadata_df = pd.DataFrame([
+    {'key' : 'SNOMED versie', 'value' : snomed_versie},
+    {'key' : 'Snowstorm URL', 'value' : snowstorm_url},
+    {'key' : 'VT bronbestand', 'value' : filename},
+    {'key' : 'Opmerkingen', 'value' : input("Opmerkingen voor in het output-bestand? ")},
+])
+metadata_df.to_excel(writer, 'Sheet1')
+
+# Sheet 2 met resultaten
 output_df = pd.DataFrame(output)
-output_df.to_excel("output.xlsx")
+output_df.to_excel(writer, 'Sheet2')
+
+writer.save()
 print(f"Klaar - download output.xlsx voor resultaten.")
