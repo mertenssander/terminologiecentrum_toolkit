@@ -1,6 +1,7 @@
 import pandas as pd
 import requests
 from tqdm import tqdm
+import os
 from os import listdir
 from os.path import isfile, join
 from datetime import datetime
@@ -19,7 +20,7 @@ Run met python3 refset+descendants_vs_vt.py. Kies in de dialoog het juist excel 
 """
 ### Config ###
 # Snowstorm URL - include trailing forward slash
-snowstorm_url = "http://ec2-18-192-57-190.eu-central-1.compute.amazonaws.com:8080/"
+snowstorm_url = "http://ec2-3-123-35-169.eu-central-1.compute.amazonaws.com:8080/"
 snomed_branch = 'MAIN'
 snomed_versie = 'prerelease'
 
@@ -136,6 +137,33 @@ for thesaurusID in list(set(thesaurusIDs)):
         'SCTID in descendants van refsetleden': in_descendants,
     })
 
+# Iterate over refset members
+output2 = []
+for SCTID in deduplicated_list_ecl:
+    present = False
+    thesaurusTerm = False
+    vt_concept = False
+    for ConceptID in thesaurusConcepten[(thesaurusConcepten['SnomedID'] == SCTID) & (thesaurusConcepten['Einddatum'] == 20991231)]['ConceptID']:
+        present = True
+        vt_concept = ConceptID
+        try:
+            thesaurusTerm = thesaurusTermen[
+                (thesaurusTermen['ConceptID'] == ConceptID) &
+                (thesaurusTermen['Einddatum'] == 20991231) &
+                (thesaurusTermen['TypeTerm'] == 'voorkeursterm')
+            ]['Omschrijving'].values[0]
+        except:
+            continue
+
+
+    output2.append({
+        'Snomed ID' : str(SCTID),
+        'ThesaurusID' : str(vt_concept),
+        'Voorkeursterm DT' : thesaurusTerm,
+        'SNOMED Concept in VT': present,
+    })
+
+
 # Exporteren naar Excel
 now = datetime.now()
 date_time = now.strftime("%m-%d-%Y_%H:%M:%S")
@@ -143,6 +171,7 @@ writer = pd.ExcelWriter(f"output_{date_time}.xlsx", engine='xlsxwriter')
 
 # Sheet 1 met metadata
 metadata_df = pd.DataFrame([
+    {'key' : 'Scriptnaam', 'value' : os.path.basename(__file__)},
     {'key' : 'Export time', 'value' : date_time},
     {'key' : 'SNOMED versie', 'value' : snomed_versie},
     {'key' : 'Snowstorm URL', 'value' : snowstorm_url},
@@ -153,9 +182,13 @@ metadata_df = pd.DataFrame([
 ])
 metadata_df.to_excel(writer, 'Sheet1')
 
-# Sheet 2 met resultaten
+# Sheet 2 met resultaten - VT vs ECL
 output_df = pd.DataFrame(output)
 output_df.to_excel(writer, 'Sheet2')
+
+# Sheet 3 met resultaten - ECL vs VT
+output_df = pd.DataFrame(output2)
+output_df.to_excel(writer, 'Sheet3')
 
 writer.save()
 print(f"Klaar - download output_{date_time}.xlsx voor resultaten.")
