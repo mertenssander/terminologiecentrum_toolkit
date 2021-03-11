@@ -20,7 +20,7 @@ Run met python3 refset+descendants_vs_vt.py. Kies in de dialoog het juist excel 
 """
 ### Config ###
 # Snowstorm URL - include trailing forward slash
-snowstorm_url = "http://ec2-3-123-35-169.eu-central-1.compute.amazonaws.com:8080/"
+snowstorm_url = "http://ec2-18-196-238-41.eu-central-1.compute.amazonaws.com:8080/"
 snomed_branch = 'MAIN'
 snomed_versie = 'prerelease'
 
@@ -93,14 +93,18 @@ print(len(deduplicated_list_ecl), "concepten in refset.")
 deduplicated_list_descendants = list(set(deduplicated_list_descendants))
 print(len(deduplicated_list_descendants), "concepten in descendants.")
 
+deduplicated_list_total = deduplicated_list_ecl + deduplicated_list_descendants
+print(len(deduplicated_list_total), "concepten in totaal.")
 
+print("-"*80)
 
 # Lijst met thesaurusconcept ID's na filter creeren
 thesaurusIDs = thesaurusConceptRollen['ConceptID'].values
 
 # Iterate over kolom met Thesaurus ID's
+print("SNOMED -> VT vergelijken")
 output = []
-for thesaurusID in list(set(thesaurusIDs)):
+for thesaurusID in tqdm(list(set(thesaurusIDs))):
     thesaurusConcept = thesaurusConcepten[
         (thesaurusConcepten['ConceptID'] == thesaurusID) & (thesaurusConcepten['Einddatum'] == 20991231)
         ]
@@ -137,12 +141,16 @@ for thesaurusID in list(set(thesaurusIDs)):
         'SCTID in descendants van refsetleden': in_descendants,
     })
 
-# Iterate over refset members
+print("-"*80)
+
+# Iterate over refset members, controleer of ze in de VT zitten
+print("VT -> SNOMED vergelijken")
 output2 = []
-for SCTID in deduplicated_list_ecl:
+for SCTID in tqdm(deduplicated_list_total):
     present = False
     thesaurusTerm = False
     vt_concept = False
+    vt_concept_specialisme = False
     for ConceptID in thesaurusConcepten[(thesaurusConcepten['SnomedID'] == SCTID) & (thesaurusConcepten['Einddatum'] == 20991231)]['ConceptID']:
         present = True
         vt_concept = ConceptID
@@ -155,16 +163,29 @@ for SCTID in deduplicated_list_ecl:
         except:
             continue
 
+        try:
+            vt_concept_specialisme = thesaurusConceptRollen[
+                (thesaurusConceptRollen['ConceptID'] == ConceptID) &
+                (thesaurusTermen['Einddatum'] == 20991231)
+            ]['SpecialismeGroepCode'].values[0]
+        except:
+            continue
 
     output2.append({
         'Snomed ID' : str(SCTID),
+        'Refset lid' : (SCTID in deduplicated_list_ecl),
+        'Descendant van refsetlid' : (SCTID in deduplicated_list_descendants),
         'ThesaurusID' : str(vt_concept),
-        'Voorkeursterm DT' : thesaurusTerm,
+        'Voorkeursterm VT' : thesaurusTerm,
+        'SpecialismeGroepCode' : vt_concept_specialisme,
         'SNOMED Concept in VT': present,
     })
 
+print("-"*80)
 
 # Exporteren naar Excel
+print("Exporteren naar excel")
+export_comment = input("Opmerkingen voor in het output-bestand? ")
 now = datetime.now()
 date_time = now.strftime("%m-%d-%Y_%H:%M:%S")
 writer = pd.ExcelWriter(f"output_{date_time}.xlsx", engine='xlsxwriter')
@@ -178,17 +199,21 @@ metadata_df = pd.DataFrame([
     {'key' : 'VT bronbestand[0]', 'value' : file_1},
     {'key' : 'VT bronbestand[1]', 'value' : file_2},
     {'key' : 'VT bronbestand[2]', 'value' : file_3},
-    {'key' : 'Opmerkingen', 'value' : input("Opmerkingen voor in het output-bestand? ")},
+    {'key' : 'Opmerkingen', 'value' : export_comment},
 ])
-metadata_df.to_excel(writer, 'Sheet1')
+metadata_df.to_excel(writer, 'Metadata')
 
 # Sheet 2 met resultaten - VT vs ECL
 output_df = pd.DataFrame(output)
-output_df.to_excel(writer, 'Sheet2')
+output_df.to_excel(writer, 'VT -> SNOMED')
 
 # Sheet 3 met resultaten - ECL vs VT
 output_df = pd.DataFrame(output2)
-output_df.to_excel(writer, 'Sheet3')
+output_df.to_excel(writer, 'SNOMED -> VT')
 
 writer.save()
+print("-"*80)
+print("-"*80)
 print(f"Klaar - download output_{date_time}.xlsx voor resultaten.")
+print("-"*80)
+print("-"*80)
