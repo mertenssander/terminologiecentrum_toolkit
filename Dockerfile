@@ -1,6 +1,6 @@
 FROM python:3.9
 
-RUN pip install pandas tqdm requests xlrd openpyxl xlsxwriter
+RUN pip install pandas tqdm requests xlrd openpyxl xlsxwriter python-decouple
 
 RUN mkdir /scripts
 COPY ./ /scripts
