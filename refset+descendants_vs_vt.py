@@ -5,6 +5,7 @@ import os
 from os import listdir
 from os.path import isfile, join
 from datetime import datetime
+from functools import cache
 
 """
 Test welke van de leden+descendants in een refset er in de VT (totaal en lijst gyn) zitten.
@@ -20,9 +21,9 @@ Run met python3 refset+descendants_vs_vt.py. Kies in de dialoog het juist excel 
 """
 ### Config ###
 # Snowstorm URL - include trailing forward slash
-snowstorm_url = "http://ec2-18-196-238-41.eu-central-1.compute.amazonaws.com:8080/"
-snomed_branch = 'MAIN'
-snomed_versie = 'prerelease'
+snowstorm_url = "https://snowstorm.test-nictiz.nl/"
+snomed_branch = 'MAIN/SNOMEDCT-NL'
+snomed_versie = 'live-20210331'
 
 # Dataframes VT creëren
 files_in_folder = [f for f in listdir("./resources") if isfile(join("./resources", f))]
@@ -61,7 +62,19 @@ print(thesaurusTermen.head())
 print("-"*80)
 print("-"*80)
 
+# Ophalen termen
+@cache
+def fetchTerms(conceptid):
+    url = f"{snowstorm_url}{snomed_branch}/concepts/{conceptid}/"
+    req = requests.get(url)
+    response = req.json()
+    if req.status_code == 200:
+        return response
+    else:
+        return {}
+
 # Ophalen refset members
+@cache
 def fetchEcl(ecl):
     concepts = []
     url = f"{snowstorm_url}{snomed_branch}/concepts?ecl={ecl}&limit=10000&returnIdOnly=true"
@@ -76,6 +89,7 @@ def fetchEcl(ecl):
         req = requests.get(url)
         response = req.json()
     return concepts
+    
 conceptID_list = fetchEcl("^146481000146103")
 
 print(f"{len(conceptID_list)} refsetleden opgehaald. Nu de descendants.")
@@ -135,6 +149,7 @@ for thesaurusID in tqdm(list(set(thesaurusIDs))):
     output.append({
         'ThesaurusID' : str(thesaurusID),
         'Snomed ID' : str(SCTID),
+        'Snomed FSN' : fetchTerms(SCTID).get('fsn',{}).get('term',None),
         'Voorkeursterm' : term,
         'SpecialismeGroepCode' : str(groepCode),
         'SCTID in refset': in_ecl,
@@ -173,6 +188,7 @@ for SCTID in tqdm(deduplicated_list_total):
 
     output2.append({
         'Snomed ID' : str(SCTID),
+        'Snomed FSN' : fetchTerms(SCTID).get('fsn',{}).get('term',None),
         'Refset lid' : (SCTID in deduplicated_list_ecl),
         'Descendant van refsetlid' : (SCTID in deduplicated_list_descendants),
         'ThesaurusID' : str(vt_concept),
